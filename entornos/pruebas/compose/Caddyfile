@@ -1,0 +1,15 @@
+{
+	email {$CORREO_CERTIFICADOS}
+}
+
+api.{$DOMINIO} {
+	encode zstd gzip
+	reverse_proxy backend:8080
+}
+
+auth.{$DOMINIO} {
+	# La consola de administración de Keycloak no se expone a internet; se usa por Tailscale.
+	@admin path /admin*
+	respond @admin 404
+	reverse_proxy keycloak:8080
+}

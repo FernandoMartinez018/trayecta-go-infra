@@ -1,0 +1,132 @@
+# Entorno de pruebas de Trayecta Go en la VM gratuita de Oracle.
+# Lo despliega Ansible; las variables vienen de .env (generado desde GitHub Secrets).
+# Fijar versiones exactas de imágenes antes del primer despliegue.
+
+name: trayecta-go
+
+services:
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DUCKDNS_SUBDOMINIO}.duckdns.org
+      CORREO_CERTIFICADOS: ${CORREO_CERTIFICADOS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-datos:/data
+    depends_on: [backend, keycloak]
+
+  backend:
+    image: ${IMAGEN_BACKEND}
+    restart: unless-stopped
+    environment:
+      ENTORNO: pruebas
+      DB_URL: jdbc:postgresql://postgres:5432/trayecta
+      DB_USUARIO: trayecta
+      DB_CLAVE: ${POSTGRES_PASSWORD}
+      AMQP_URL: amqp://trayecta:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      OIDC_ISSUER: https://auth.${DUCKDNS_SUBDOMINIO}.duckdns.org/realms/trayecta-go
+      VALHALLA_URL: http://valhalla:8002
+      PHOTON_URL: http://photon:2322
+      S3_ENDPOINT: https://${OCI_NAMESPACE}.compat.objectstorage.${OCI_REGION}.oraclecloud.com
+      S3_REGION: ${OCI_REGION}
+      S3_BUCKET: trayecta-go-pruebas-archivos
+      S3_ACCESS_KEY: ${OCI_S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${OCI_S3_SECRET_KEY}
+      FEATURE_ALERTAS_POLICIA: "true"
+      FEATURE_IA_NOTICIAS: "false"
+      FEATURE_PUSH_IOS: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trayecta
+      POSTGRES_USER: trayecta
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-datos:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trayecta"]
+      interval: 10s
+      retries: 5
+
+  keycloak-db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - keycloak-db-datos:/var/lib/postgresql/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_HOSTNAME: https://auth.${DUCKDNS_SUBDOMINIO}.duckdns.org
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    depends_on: [keycloak-db]
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: trayecta
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq-datos:/var/lib/rabbitmq
+
+  valhalla:
+    image: ghcr.io/valhalla/valhalla-scripted:latest
+    restart: unless-stopped
+    environment:
+      tile_urls: "https://download.geofabrik.de/south-america/colombia-latest.osm.pbf"
+      build_admins: "True"
+      build_time_zones: "True"
+    volumes:
+      - valhalla-datos:/custom_files
+
+  photon:
+    image: rtuszik/photon-docker:latest
+    restart: unless-stopped
+    environment:
+      COUNTRY_CODE: co
+    volumes:
+      - photon-datos:/photon/photon_data
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    restart: unless-stopped
+    # El 3001 no está abierto en la lista de seguridad de Oracle: solo se alcanza por Tailscale
+    # en http://trayecta-go-pruebas:3001
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime-datos:/app/data
+
+volumes:
+  caddy-datos:
+  postgres-datos:
+  keycloak-db-datos:
+  rabbitmq-datos:
+  valhalla-datos:
+  photon-datos:
+  uptime-datos:

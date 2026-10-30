@@ -1,0 +1,60 @@
+# Despliega el entorno de pruebas en la VM de Oracle, conectándose por Tailscale.
+# Uso (desde el workflow): ansible-playbook -i inventario.ini desplegar.yml
+- name: Desplegar Trayecta Go (pruebas)
+  hosts: pruebas
+  become: true
+  vars:
+    carpeta: /opt/trayecta-go
+  tasks:
+    - name: Paquetes base
+      ansible.builtin.apt:
+        name: [docker.io, docker-compose-v2, cron]
+        state: present
+        update_cache: true
+
+    - name: Docker activo
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Permitir 80 y 443 en iptables de la imagen de Oracle
+      ansible.builtin.shell: |
+        for puerto in 80 443; do
+          iptables -C INPUT -p tcp --dport $puerto -j ACCEPT 2>/dev/null || iptables -I INPUT 5 -p tcp --dport $puerto -j ACCEPT
+        done
+        netfilter-persistent save || true
+      changed_when: false
+
+    - name: Carpeta del despliegue
+      ansible.builtin.file:
+        path: "{{ carpeta }}"
+        state: directory
+        mode: "0750"
+
+    - name: Archivos de Compose y Caddy
+      ansible.builtin.copy:
+        src: "../compose/{{ item }}"
+        dest: "{{ carpeta }}/{{ item }}"
+        mode: "0640"
+      loop: [compose.yaml, Caddyfile]
+
+    - name: Variables de entorno desde los secretos del runner
+      ansible.builtin.template:
+        src: templates/env.j2
+        dest: "{{ carpeta }}/.env"
+        mode: "0600"
+      no_log: true
+
+    - name: Actualizar DuckDNS cada 5 minutos
+      ansible.builtin.cron:
+        name: duckdns
+        minute: "*/5"
+        job: "curl -fsS 'https://www.duckdns.org/update?domains={{ lookup('env', 'DUCKDNS_SUBDOMINIO') }}&token={{ lookup('env', 'DUCKDNS_TOKEN') }}&ip=' >/dev/null 2>&1"
+      no_log: true
+
+    - name: Descargar imágenes y levantar servicios
+      ansible.builtin.command: docker compose --env-file .env up -d --pull always --remove-orphans
+      args:
+        chdir: "{{ carpeta }}"
+      changed_when: true

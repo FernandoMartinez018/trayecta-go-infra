@@ -1,0 +1,19 @@
+# OpenTofu
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+crash.log
+
+# Secretos: nunca al repositorio
+.env
+.env.*
+*.pem
+*.key
+oci_api_key*
+
+# Sistema
+.DS_Store
+.idea/
+.vscode/
