@@ -8,8 +8,8 @@ api.{$DOMINIO} {
 }
 
 auth.{$DOMINIO} {
-	# La consola de administración de Keycloak no se expone a internet; se usa por Tailscale.
-	@admin path /admin*
+	# La consola de administración y el realm master de Keycloak no se exponen a internet; se usan por Tailscale.
+	@admin path /admin* /realms/master*
 	respond @admin 404
 	reverse_proxy keycloak:8080
 }

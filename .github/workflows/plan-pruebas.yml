@@ -2,15 +2,22 @@ name: Plan · pruebas
 
 on:
   pull_request:
-    paths: ["entornos/pruebas/tofu/**"]
+    paths: ["entornos/pruebas/tofu/**", ".github/workflows/plan-pruebas.yml"]
 
 permissions:
   contents: read
   pull-requests: write
 
+# Un solo workflow a la vez toca el estado de OpenTofu (este y desplegar-pruebas comparten el grupo).
+concurrency:
+  group: tofu-pruebas
+  cancel-in-progress: false
+
 jobs:
   plan:
-    runs-on: ubuntu-latest
+    # Mientras no exista la cuenta de Oracle configurada (variable OCI_REGION) el plan se omite; la validación corre en validar.yml.
+    if: ${{ vars.OCI_REGION != '' }}
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: entornos/pruebas/tofu
@@ -25,15 +32,15 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: opentofu/setup-opentofu@v1
+      - uses: actions/checkout@v7
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
         with:
-          tofu_version: 1.8.5
+          tofu_version: 1.13.2
       - name: Formato
         run: tofu fmt -check -recursive
       - name: Init
         run: >
-          tofu init
+          tofu init -lockfile=readonly
           -backend-config="bucket=trayecta-go-tofu-estado"
           -backend-config="region=${{ vars.OCI_REGION }}"
           -backend-config="endpoints={s3=\"https://${{ vars.OCI_NAMESPACE }}.compat.objectstorage.${{ vars.OCI_REGION }}.oraclecloud.com\"}"

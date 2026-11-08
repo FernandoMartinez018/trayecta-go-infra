@@ -1,0 +1,47 @@
+name: Validar
+
+# En todo PR, sin secretos ni acceso a la nube: OpenTofu, Ansible y Compose se validan con lo que está en el repositorio.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tofu:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: entornos/pruebas/tofu
+    steps:
+      - uses: actions/checkout@v7
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
+        with:
+          tofu_version: 1.13.2
+      - name: Formato
+        run: tofu fmt -check -recursive
+      - name: Init sin backend (manda el lockfile versionado)
+        run: tofu init -backend=false -input=false -lockfile=readonly
+      - name: Validar
+        run: tofu validate
+
+  ansible:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # Incluye la comprobación de sintaxis del playbook.
+      - uses: ansible/ansible-lint@9bce2bfb8f4a984e6b13767bc0d6bf0a49492164 # v26.10.1
+        with:
+          working_directory: entornos/pruebas/ansible
+
+  compose:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: entornos/pruebas/compose
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compose de pruebas y del ensayo con los valores ficticios
+        run: |
+          docker compose -f compose.yaml --env-file ensayo.env config -q
+          docker compose -f compose.yaml -f compose.ensayo.yaml --env-file ensayo.env config -q

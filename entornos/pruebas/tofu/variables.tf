@@ -33,15 +33,16 @@ variable "tailscale_authkey" {
   sensitive   = true
 }
 
-# Dentro del límite Always Free para cómputo ARM. Verificar el límite vigente antes de subirlo.
+# Límite Always Free vigente para cómputo ARM: 2 OCPU / 12 GB (Oracle lo redujo a mediados de 2026).
+# El Compose de pruebas lleva mem_limit en cada servicio para caber en estos 12 GB. Verificar el límite antes de subirlo.
 variable "ocpus" {
   type    = number
-  default = 4
+  default = 2
 }
 
 variable "memoria_gb" {
   type    = number
-  default = 24
+  default = 12
 }
 
 # Dentro de la cuota gratuita de almacenamiento en bloques. Verificar antes de cambiarlo.

@@ -1,0 +1,75 @@
+# Ensayo local del entorno de pruebas: las mismas definiciones de compose.yaml con imágenes locales, correo en Mailpit,
+# S3 local (versitygw) y TLS de Caddy con su CA interna para *.localhost. No usa la nube ni secretos reales.
+#
+# Uso, desde esta carpeta (detalle en 04-infraestructura/despliegues.md):
+#   docker compose -p trayecta-go-ensayo -f compose.yaml -f compose.ensayo.yaml --env-file ensayo.env up -d
+#   docker compose -p trayecta-go-ensayo -f compose.yaml -f compose.ensayo.yaml --env-file ensayo.env --profile e2e run --rm e2e
+#   docker compose -p trayecta-go-ensayo -f compose.yaml -f compose.ensayo.yaml --env-file ensayo.env down -v
+# Las imágenes locales salen del repositorio trayecta-go (entorno-local/README.md): trayecta-go-backend:local,
+# trayecta-go-keycloak:local, trayecta-go-postgis:local y, solo con el perfil `pesados`, trayecta-go-photon:local.
+# REPO_PRODUCTO apunta al clon del repositorio trayecta-go (por defecto, el vecino): las pruebas E2E leen también identidad/realm.
+
+services:
+  caddy:
+    # No se publican el 80 ni el 443 en el PC (pueden estar en uso): el ensayo entra por el espacio de red de Caddy.
+    ports: !reset []
+    # Los nombres *.localhost resuelven a Caddy; el servicio e2e comparte su espacio de red y su /etc/hosts.
+    extra_hosts:
+      - "api.localhost:127.0.0.1"
+      - "auth.localhost:127.0.0.1"
+
+  postgres:
+    image: trayecta-go-postgis:local
+
+  # Servicios pesados: no corren en el ensayo salvo con --profile pesados.
+  valhalla:
+    profiles: [pesados]
+
+  photon:
+    image: trayecta-go-photon:local
+    profiles: [pesados]
+
+  uptime-kuma:
+    profiles: [pesados]
+
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+
+  # Destino S3 de prueba para el respaldo: las mismas llaves de ensayo.env.
+  s3-local:
+    image: versity/versitygw:v1.9.0
+    command: ["--port", ":7070", "posix", "/data"]
+    environment:
+      ROOT_ACCESS_KEY_ID: ${OCI_S3_ACCESS_KEY}
+      ROOT_SECRET_ACCESS_KEY: ${OCI_S3_SECRET_KEY}
+    volumes:
+      - s3-datos:/data
+
+  # El respaldo espera a que exista el almacenamiento de prueba.
+  respaldo-subida:
+    depends_on: [s3-local]
+
+  # Pruebas E2E a través de Caddy y TLS (perfil e2e). Comparte el espacio de red de Caddy: allí api.localhost y
+  # auth.localhost son 127.0.0.1. Chromium acepta *.localhost y los certificados de la CA interna con IGNORAR_TLS=1.
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.64.1-noble
+    profiles: [e2e]
+    network_mode: "service:caddy"
+    working_dir: /trabajo/pruebas-e2e
+    ipc: host
+    command: ["sh", "-c", "npm ci && npx playwright test"]
+    environment:
+      KEYCLOAK_URL: https://auth.localhost
+      API_URL: https://api.localhost
+      MAILPIT_URL: http://mailpit:8025
+      IGNORAR_TLS: "1"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    volumes:
+      - ${REPO_PRODUCTO:-../../../../trayecta-go}:/trabajo
+    depends_on: [caddy, mailpit]
+
+volumes:
+  s3-datos:

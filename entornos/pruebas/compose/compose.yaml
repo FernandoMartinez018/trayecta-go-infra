@@ -1,132 +1,179 @@
-# Entorno de pruebas de Trayecta Go en la VM gratuita de Oracle.
-# Lo despliega Ansible; las variables vienen de .env (generado desde GitHub Secrets).
-# Fijar versiones exactas de imágenes antes del primer despliegue.
+# Entorno de pruebas de Trayecta Go en la VM gratuita de Oracle (2 OCPU / 12 GB).
+# Lo despliega Ansible; las variables vienen de .env (generado desde los secretos y variables de GitHub).
+# Ensayo local con estas mismas definiciones: compose.ensayo.yaml. Todas las imágenes existen para linux/arm64.
+# Los mem_limit suman 9,9 GiB: deja margen al sistema y a Docker dentro de los 12 GB.
 
 name: trayecta-go
 
 services:
   caddy:
-    image: caddy:2.8
+    image: caddy:2.11.7-alpine
     restart: unless-stopped
+    mem_limit: 128m
     ports:
       - "80:80"
       - "443:443"
     environment:
-      DOMINIO: ${DUCKDNS_SUBDOMINIO}.duckdns.org
-      CORREO_CERTIFICADOS: ${CORREO_CERTIFICADOS}
+      DOMINIO: ${DOMINIO:?falta DOMINIO}
+      CORREO_CERTIFICADOS: ${CORREO_CERTIFICADOS:?falta CORREO_CERTIFICADOS}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-datos:/data
+      - caddy-config:/config
     depends_on: [backend, keycloak]
 
   backend:
-    image: ${IMAGEN_BACKEND}
+    image: ${IMAGEN_BACKEND:?falta IMAGEN_BACKEND}
     restart: unless-stopped
+    mem_limit: 512m
     environment:
       ENTORNO: pruebas
       DB_URL: jdbc:postgresql://postgres:5432/trayecta
       DB_USUARIO: trayecta
-      DB_CLAVE: ${POSTGRES_PASSWORD}
-      AMQP_URL: amqp://trayecta:${RABBITMQ_PASSWORD}@rabbitmq:5672
-      OIDC_ISSUER: https://auth.${DUCKDNS_SUBDOMINIO}.duckdns.org/realms/trayecta-go
-      VALHALLA_URL: http://valhalla:8002
-      PHOTON_URL: http://photon:2322
-      S3_ENDPOINT: https://${OCI_NAMESPACE}.compat.objectstorage.${OCI_REGION}.oraclecloud.com
-      S3_REGION: ${OCI_REGION}
-      S3_BUCKET: trayecta-go-pruebas-archivos
-      S3_ACCESS_KEY: ${OCI_S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${OCI_S3_SECRET_KEY}
-      FEATURE_ALERTAS_POLICIA: "true"
-      FEATURE_IA_NOTICIAS: "false"
-      FEATURE_PUSH_IOS: "false"
+      DB_CLAVE: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD}
+      # iss = KC_HOSTNAME de Keycloak; las llaves de firma se descargan por la red interna.
+      OIDC_ISSUER: ${URL_AUTH:?falta URL_AUTH}/realms/trayecta-go
+      OIDC_JWKS_URL: http://keycloak:8080/realms/trayecta-go/protocol/openid-connect/certs
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/8080"]
+      interval: 15s
+      retries: 10
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
 
   postgres:
-    image: postgis/postgis:16-3.4
+    image: ghcr.io/fernandomartinez018/trayecta-go-postgis:16.15-3.6.4
     restart: unless-stopped
+    mem_limit: 1g
     environment:
       POSTGRES_DB: trayecta
       POSTGRES_USER: trayecta
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD}
+      # El script de inicio de la imagen crea el rol y la base `keycloak` la primera vez que arranca el volumen.
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?falta KEYCLOAK_DB_PASSWORD}
     volumes:
       - postgres-datos:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trayecta"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U trayecta -d trayecta"]
       interval: 10s
-      retries: 5
-
-  keycloak-db:
-    image: postgres:16
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: keycloak
-      POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
-    volumes:
-      - keycloak-db-datos:/var/lib/postgresql/data
+      retries: 10
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: ${IMAGEN_KEYCLOAK:?falta IMAGEN_KEYCLOAK}
     restart: unless-stopped
-    command: ["start", "--import-realm"]
+    mem_limit: 1g
+    command: ["start", "--optimized", "--import-realm"]
     environment:
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
-      KC_HOSTNAME: https://auth.${DUCKDNS_SUBDOMINIO}.duckdns.org
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?falta KEYCLOAK_DB_PASSWORD}
+      KC_HOSTNAME: ${URL_AUTH:?falta URL_AUTH}
       KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-    volumes:
-      - ./keycloak:/opt/keycloak/data/import:ro
-    depends_on: [keycloak-db]
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?falta KEYCLOAK_ADMIN_PASSWORD}
+      # Marcadores del realm (identidad/realm/realm-trayecta-go.json en el repositorio trayecta-go).
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?falta GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?falta GOOGLE_CLIENT_SECRET}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_USER: ${SMTP_USER:?falta SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?falta SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM:-${SMTP_USER}}
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.1 200' <&3"
+      interval: 10s
+      retries: 30
+      start_period: 90s
+    depends_on:
+      postgres:
+        condition: service_healthy
 
-  rabbitmq:
-    image: rabbitmq:3.13-management
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: trayecta
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-    volumes:
-      - rabbitmq-datos:/var/lib/rabbitmq
-
+  # Nadie depende de Valhalla: la primera vez descarga el extracto de Colombia y genera los tiles (unos 8 min, pico de 2,4 GB).
   valhalla:
-    image: ghcr.io/valhalla/valhalla-scripted:latest
+    image: ghcr.io/valhalla/valhalla-scripted:3.9.1
     restart: unless-stopped
+    mem_limit: 5g
     environment:
-      tile_urls: "https://download.geofabrik.de/south-america/colombia-latest.osm.pbf"
+      tile_urls: https://download.geofabrik.de/south-america/colombia-latest.osm.pbf
+      server_threads: "2"
+      build_elevation: "False"
       build_admins: "True"
       build_time_zones: "True"
     volumes:
       - valhalla-datos:/custom_files
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8002/status"]
+      interval: 30s
+      retries: 3
+      start_period: 90m
 
+  # La primera vez importa el volcado de Colombia (unos 7 min, pico de 2,1 GB); la imagen trae su propio healthcheck.
   photon:
-    image: rtuszik/photon-docker:latest
+    image: ghcr.io/fernandomartinez018/trayecta-go-photon:1.3.0
     restart: unless-stopped
+    mem_limit: 2g
     environment:
-      COUNTRY_CODE: co
+      JAVA_OPTS: -Xmx1536m
     volumes:
-      - photon-datos:/photon/photon_data
+      - photon-datos:/photon/data
 
   uptime-kuma:
-    image: louislam/uptime-kuma:1
+    image: louislam/uptime-kuma:2.5.8
     restart: unless-stopped
-    # El 3001 no está abierto en la lista de seguridad de Oracle: solo se alcanza por Tailscale
-    # en http://trayecta-go-pruebas:3001
+    mem_limit: 256m
+    # Docker se salta las reglas del host: lo que protege el 3001 es la lista de seguridad de la VCN,
+    # que solo abre 80, 443 y 41641/udp. Se alcanza por Tailscale en http://trayecta-go-pruebas:3001
     ports:
       - "3001:3001"
     volumes:
       - uptime-datos:/app/data
 
+  # Respaldo diario (perfil `respaldo`; lo lanza cron desde Ansible): vuelca la base `trayecta` y la sube a Object Storage.
+  # Con pipefail, si pg_dump falla no queda un respaldo a medias ni se sube nada.
+  respaldo-volcado:
+    image: ghcr.io/fernandomartinez018/trayecta-go-postgis:16.15-3.6.4
+    profiles: [respaldo]
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD}
+    entrypoint: ["bash", "-c"]
+    command: ["set -euo pipefail; pg_dump -h postgres -U trayecta -d trayecta --no-owner | gzip > /respaldos/respaldo.sql.gz.tmp && mv /respaldos/respaldo.sql.gz.tmp /respaldos/respaldo.sql.gz"]
+    volumes:
+      - respaldos:/respaldos
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # El archivo se llama respaldo-DD.sql.gz (DD = día del mes, en UTC): cada uno se sobrescribe al mes y la retención queda en 31 días o menos.
+  respaldo-subida:
+    image: rclone/rclone:1.75.2
+    profiles: [respaldo]
+    environment:
+      RCLONE_CONFIG_OCI_TYPE: s3
+      RCLONE_CONFIG_OCI_PROVIDER: Other
+      RCLONE_CONFIG_OCI_ENDPOINT: ${S3_ENDPOINT:?falta S3_ENDPOINT}
+      RCLONE_CONFIG_OCI_REGION: ${OCI_REGION:?falta OCI_REGION}
+      RCLONE_CONFIG_OCI_ACCESS_KEY_ID: ${OCI_S3_ACCESS_KEY:?falta OCI_S3_ACCESS_KEY}
+      RCLONE_CONFIG_OCI_SECRET_ACCESS_KEY: ${OCI_S3_SECRET_KEY:?falta OCI_S3_SECRET_KEY}
+      RCLONE_CONFIG_OCI_NO_CHECK_BUCKET: "true"
+    entrypoint: ["sh", "-c"]
+    command: ["rclone copyto /respaldos/respaldo.sql.gz oci:trayecta-go-pruebas-archivos/respaldos/respaldo-$$(date +%d).sql.gz"]
+    volumes:
+      - respaldos:/respaldos:ro
+
 volumes:
   caddy-datos:
+  caddy-config:
   postgres-datos:
-  keycloak-db-datos:
-  rabbitmq-datos:
   valhalla-datos:
   photon-datos:
   uptime-datos:
+  respaldos:

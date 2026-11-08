@@ -3,17 +3,10 @@ package_update: true
 package_upgrade: true
 packages:
   - curl
-  - ufw
 runcmd:
   # Tailscale: la VM se une a la red privada con el tag de pruebas y SSH de Tailscale.
   - curl -fsSL https://tailscale.com/install.sh | sh
   - tailscale up --authkey=${tailscale_authkey} --hostname=trayecta-go-pruebas --ssh --advertise-tags=tag:trayecta-pruebas
-  # Firewall del sistema: solo web pública; todo lo demás solo por Tailscale.
-  - ufw default deny incoming
-  - ufw default allow outgoing
-  - ufw allow 80/tcp
-  - ufw allow 443/tcp
-  - ufw allow 41641/udp
-  - ufw allow in on tailscale0
-  - ufw --force enable
-  # Las imágenes de Ubuntu en Oracle traen reglas de iptables propias; se reconcilian en el playbook de Ansible.
+  # Sin ufw: Oracle advierte que en sus imágenes Ubuntu puede impedir que la instancia arranque.
+  # El firewall son la lista de seguridad de la VCN (solo 80, 443 y 41641/udp) y las reglas de iptables de la imagen,
+  # que el playbook de Ansible reconcilia para abrir 80 y 443.

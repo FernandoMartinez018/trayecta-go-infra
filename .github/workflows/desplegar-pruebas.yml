@@ -5,7 +5,10 @@ on:
     inputs:
       imagen_backend:
         description: Imagen del backend (ghcr.io/...:etiqueta)
-        required: true
+        default: ghcr.io/fernandomartinez018/trayecta-go-backend:main
+      imagen_keycloak:
+        description: Imagen de Keycloak (ghcr.io/...:etiqueta)
+        default: ghcr.io/fernandomartinez018/trayecta-go-keycloak:main
       aplicar_infra:
         description: Aplicar cambios de infraestructura (OpenTofu)
         type: boolean
@@ -14,14 +17,15 @@ on:
 permissions:
   contents: read
 
+# Un solo workflow a la vez toca el estado de OpenTofu y la VM.
 concurrency:
-  group: desplegar-pruebas
+  group: tofu-pruebas
   cancel-in-progress: false
 
 jobs:
   infraestructura:
     if: ${{ inputs.aplicar_infra }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: pruebas   # requiere aprobación de Fernando
     defaults:
       run:
@@ -37,13 +41,13 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: opentofu/setup-opentofu@v1
+      - uses: actions/checkout@v7
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
         with:
-          tofu_version: 1.8.5
+          tofu_version: 1.13.2
       - name: Init
         run: >
-          tofu init
+          tofu init -lockfile=readonly
           -backend-config="bucket=trayecta-go-tofu-estado"
           -backend-config="region=${{ vars.OCI_REGION }}"
           -backend-config="endpoints={s3=\"https://${{ vars.OCI_NAMESPACE }}.compat.objectstorage.${{ vars.OCI_REGION }}.oraclecloud.com\"}"
@@ -53,30 +57,34 @@ jobs:
   servicios:
     needs: [infraestructura]
     if: ${{ always() && (needs.infraestructura.result == 'success' || needs.infraestructura.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: pruebas   # requiere aprobación de Fernando
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Unirse a Tailscale
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:trayecta-pruebas
       - name: Instalar Ansible
-        run: pipx install --include-deps ansible
+        run: pipx install ansible-core==2.21.5
       - name: Desplegar con Ansible
         working-directory: entornos/pruebas/ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           IMAGEN_BACKEND: ${{ inputs.imagen_backend }}
+          IMAGEN_KEYCLOAK: ${{ inputs.imagen_keycloak }}
           DUCKDNS_SUBDOMINIO: ${{ vars.DUCKDNS_SUBDOMINIO }}
           DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
           CORREO_CERTIFICADOS: ${{ vars.CORREO_CERTIFICADOS }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
           KEYCLOAK_ADMIN_PASSWORD: ${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}
           KEYCLOAK_DB_PASSWORD: ${{ secrets.KEYCLOAK_DB_PASSWORD }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           OCI_NAMESPACE: ${{ vars.OCI_NAMESPACE }}
           OCI_REGION: ${{ vars.OCI_REGION }}
           OCI_S3_ACCESS_KEY: ${{ secrets.OCI_S3_ACCESS_KEY }}
