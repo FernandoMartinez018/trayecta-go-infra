@@ -15,7 +15,7 @@ jobs:
         working-directory: entornos/pruebas/tofu
     steps:
       - uses: actions/checkout@v7
-      - uses: opentofu/setup-opentofu@v2
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
         with:
           tofu_version: 1.13.2
       - name: Formato
@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # Incluye la comprobación de sintaxis del playbook.
-      - uses: ansible/ansible-lint@v26.10.1
+      - uses: ansible/ansible-lint@9bce2bfb8f4a984e6b13767bc0d6bf0a49492164 # v26.10.1
         with:
           working_directory: entornos/pruebas/ansible
 
