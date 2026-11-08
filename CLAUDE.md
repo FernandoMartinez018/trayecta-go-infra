@@ -33,9 +33,10 @@ Al terminar cada tarea (aunque quede incompleta):
 
 - **OpenTofu** (`entornos/pruebas/tofu/`) crea red, reglas de firewall y una VM `VM.Standard.A1.Flex` con Ubuntu.
 - **cloud-init** instala Tailscale en el primer arranque para administrar la VM sin SSH público.
-- **Ansible** (`entornos/pruebas/ansible/`) instala Docker y despliega `entornos/pruebas/compose/` con Caddy, backend, PostGIS, RabbitMQ, Keycloak, Valhalla, Photon y Uptime Kuma.
+- **Ansible** (`entornos/pruebas/ansible/`) instala Docker y despliega `entornos/pruebas/compose/` con Caddy, backend, PostGIS, Keycloak (sobre la base `keycloak` del mismo PostgreSQL), Valhalla, Photon y Uptime Kuma. RabbitMQ no corre en pruebas en este ciclo. La VM es de **2 OCPU / 12 GB** y cada servicio lleva `mem_limit`; sin `ufw`.
 - **HTTPS** con Caddy y subdominios de DuckDNS (`api.<nombre>.duckdns.org`, `auth.<nombre>.duckdns.org`).
-- **Archivos y respaldos** en Object Storage de Oracle por la API compatible con S3.
+- **Archivos y respaldos** en Object Storage de Oracle por la API compatible con S3. Un cron de Ansible (8:15 UTC) corre `pg_dump` de la base `trayecta` y sube `respaldo-DD.sql.gz` (perfil `respaldo` del Compose); la base de Keycloak no está en el respaldo.
+- **Ensayo local** (`compose.ensayo.yaml` + `ensayo.env`, valores ficticios): mismas definiciones con imágenes locales, Mailpit y S3 local; sirve para probar Caddy con TLS, las E2E y el respaldo sin tocar la nube.
 - **Estado de OpenTofu** en un bucket de Object Storage de Oracle (backend `s3`).
 
 ## Reglas obligatorias (costo y seguridad)
@@ -54,7 +55,7 @@ Al terminar cada tarea (aunque quede incompleta):
 
 1. Rama `infra/descripcion-corta`.
 2. Cambios en OpenTofu: `tofu fmt`, `tofu validate` y el plan del PR deben estar en verde.
-3. Cambios en Ansible o Compose: explica en el PR cómo verificarlos.
+3. Cambios en Ansible o Compose: el workflow `validar` corre `ansible-lint` y `docker compose config` en cada PR; explica en el PR cómo los verificaste (por ejemplo con el ensayo local).
 4. PR en español con qué cambia, el costo (debe ser 0) y cómo revertir.
 
 ## Secretos esperados

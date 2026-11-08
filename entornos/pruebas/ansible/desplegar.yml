@@ -5,6 +5,10 @@
   become: true
   vars:
     carpeta: /opt/trayecta-go
+    subdominio: "{{ lookup('env', 'DUCKDNS_SUBDOMINIO') }}"
+    dominio: "{{ subdominio }}.duckdns.org"
+    url_auth: "https://auth.{{ dominio }}"
+    s3_endpoint: "https://{{ lookup('env', 'OCI_NAMESPACE') }}.compat.objectstorage.{{ lookup('env', 'OCI_REGION') }}.oraclecloud.com"
   tasks:
     - name: Paquetes base
       ansible.builtin.apt:
@@ -18,6 +22,8 @@
         state: started
         enabled: true
 
+    # Sin ufw (Oracle advierte que puede impedir el arranque): el firewall es la lista de seguridad de la VCN
+    # más las reglas de iptables propias de la imagen, que aquí se reconcilian para abrir 80 y 443.
     - name: Permitir 80 y 443 en iptables de la imagen de Oracle
       ansible.builtin.shell: |
         for puerto in 80 443; do
@@ -50,8 +56,20 @@
       ansible.builtin.cron:
         name: duckdns
         minute: "*/5"
-        job: "curl -fsS 'https://www.duckdns.org/update?domains={{ lookup('env', 'DUCKDNS_SUBDOMINIO') }}&token={{ lookup('env', 'DUCKDNS_TOKEN') }}&ip=' >/dev/null 2>&1"
+        job: "curl -fsS 'https://www.duckdns.org/update?domains={{ subdominio }}&token={{ lookup('env', 'DUCKDNS_TOKEN') }}&ip=' >/dev/null 2>&1"
       no_log: true
+
+    # 8:15 UTC son las 3:15 a. m. en Bogotá. El volcado y la subida van en cadena: si el volcado falla, no se sube nada.
+    - name: Respaldo diario de la base a Object Storage
+      ansible.builtin.cron:
+        name: respaldo-trayecta
+        minute: "15"
+        hour: "8"
+        job: >-
+          cd {{ carpeta }} &&
+          (docker compose --profile respaldo run --rm -T respaldo-volcado &&
+          docker compose --profile respaldo run --rm -T respaldo-subida)
+          >> /var/log/respaldo-trayecta.log 2>&1
 
     - name: Descargar imágenes y levantar servicios
       ansible.builtin.command: docker compose --env-file .env up -d --pull always --remove-orphans

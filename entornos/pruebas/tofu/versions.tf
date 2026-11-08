@@ -1,15 +1,16 @@
 terraform {
-  required_version = ">= 1.8.0"
+  required_version = "~> 1.13.2"
 
   required_providers {
     oci = {
       source  = "oracle/oci"
-      version = "~> 6.0"
+      version = "~> 9.10"
     }
   }
 
   # Estado en Object Storage de Oracle (API compatible con S3).
   # Los valores (bucket, endpoint, llaves) se pasan con -backend-config en el workflow.
+  # No se activa use_lockfile: OCI no documenta escrituras condicionales; los workflows comparten la concurrency tofu-pruebas.
   backend "s3" {
     key                         = "pruebas/terraform.tfstate"
     skip_region_validation      = true
