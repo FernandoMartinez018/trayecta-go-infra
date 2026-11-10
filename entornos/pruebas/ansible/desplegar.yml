@@ -3,6 +3,7 @@
 - name: Desplegar Trayecta Go (pruebas)
   hosts: pruebas
   become: true
+  gather_facts: false
   vars:
     carpeta: /opt/trayecta-go
     subdominio: "{{ lookup('env', 'DUCKDNS_SUBDOMINIO') }}"
@@ -10,6 +11,17 @@
     url_auth: "https://auth.{{ dominio }}"
     s3_endpoint: "https://{{ lookup('env', 'OCI_NAMESPACE') }}.compat.objectstorage.{{ lookup('env', 'OCI_REGION') }}.oraclecloud.com"
   tasks:
+    # La VM recién creada tarda unos minutos en arrancar, instalar Tailscale y unirse a la red, y el nodo del runner tarda unos
+    # segundos en ser visible para el resto. Se espera la conexión antes de tocar nada; en una VM ya creada vuelve de inmediato.
+    - name: Esperar a que la VM sea alcanzable por Tailscale
+      ansible.builtin.wait_for_connection:
+        sleep: 10
+        timeout: 900
+      become: false
+
+    - name: Recoger los datos de la VM
+      ansible.builtin.setup:
+
     - name: Paquetes base
       ansible.builtin.apt:
         name: [docker.io, docker-compose-v2, cron]
