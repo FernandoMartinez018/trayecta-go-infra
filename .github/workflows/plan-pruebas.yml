@@ -3,6 +3,7 @@ name: Plan · pruebas
 on:
   pull_request:
     paths: ["entornos/pruebas/tofu/**", ".github/workflows/plan-pruebas.yml"]
+  workflow_dispatch:
 
 permissions:
   contents: read
