@@ -6,6 +6,10 @@
 *.tfplan
 crash.log
 
+# Python (herramientas/)
+__pycache__/
+*.pyc
+
 # Secretos: nunca al repositorio
 .env
 .env.*
