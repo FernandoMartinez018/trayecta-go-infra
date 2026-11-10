@@ -1,6 +1,7 @@
 name: Validar
 
-# En todo PR, sin secretos ni acceso a la nube: OpenTofu, Ansible y Compose se validan con lo que está en el repositorio.
+# En todo PR, sin secretos ni acceso a la nube: OpenTofu, Ansible y Compose se validan con lo que está en el repositorio,
+# y el script de arranque de Oracle (herramientas/oracle/) corre sus pruebas con una nube simulada.
 on:
   pull_request:
 
@@ -45,3 +46,12 @@ jobs:
         run: |
           docker compose -f compose.yaml --env-file ensayo.env config -q
           docker compose -f compose.yaml -f compose.ensayo.yaml --env-file ensayo.env config -q
+
+  oracle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # Bastan el Python 3.12 del runner y la biblioteca estándar: sin red, sin Docker y sin secretos. Si no descubre ninguna
+      # prueba (por ejemplo, tras mover la carpeta) unittest sale con código 5 y el job falla en vez de pasar en vacío.
+      - name: Pruebas del script de arranque de Oracle (nube simulada)
+        run: python3 -I -m unittest discover -s herramientas/oracle -p test_bootstrap_oci.py
