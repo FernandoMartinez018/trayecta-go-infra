@@ -38,15 +38,30 @@ variable "tailscale_authkey" {
 variable "ocpus" {
   type    = number
   default = 2
+
+  validation {
+    condition     = var.ocpus <= 2
+    error_message = "Más de 2 OCPU de ARM sale del cupo gratuito de Oracle (Always Free) y genera cobro. Verifica el cupo vigente y pide aprobación a Fernando antes de subir este tope."
+  }
 }
 
 variable "memoria_gb" {
   type    = number
   default = 12
+
+  validation {
+    condition     = var.memoria_gb <= 12
+    error_message = "Más de 12 GB de memoria ARM sale del cupo gratuito de Oracle (Always Free) y genera cobro. Verifica el cupo vigente y pide aprobación a Fernando antes de subir este tope."
+  }
 }
 
 # Dentro de la cuota gratuita de almacenamiento en bloques. Verificar antes de cambiarlo.
 variable "disco_gb" {
   type    = number
   default = 100
+
+  validation {
+    condition     = var.disco_gb <= 100
+    error_message = "Más de 100 GB de disco no está verificado dentro de la cuota gratuita de almacenamiento en bloques de Oracle. Verifica el cupo vigente y pide aprobación a Fernando antes de subir este tope."
+  }
 }
